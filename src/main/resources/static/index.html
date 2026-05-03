@@ -1,15 +1,17 @@
 <!DOCTYPE html>
-<html>
+<html lang="uk">
 <head>
     <meta charset="UTF-8">
     <title>Live Football (OIDC + WSS + Protobuf)</title>
-    <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.X.X/dist/protobuf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.2.5/dist/protobuf.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; background: #eef2f3; }
         .card { background: white; padding: 20px; border-radius: 8px; display: inline-block; margin-top: 50px; box-shadow: 0px 4px 8px rgba(0,0,0,0.2); }
         .score { font-size: 50px; font-weight: bold; margin: 10px 0; color: #d32f2f; }
         .info { font-size: 18px; color: #555; }
-        button { margin-top: 20px; padding: 10px 15px; cursor: pointer; }
+        button { margin-top: 10px; padding: 10px 15px; cursor: pointer; display: block; width: 100%; }
+        #status { margin-top: 10px; font-size: 14px; color: #777; }
+        #user-panel { margin-top: 10px; font-size: 14px; background: #f5f5f5; padding: 8px; border-radius: 4px; text-align: left; display: none; }
     </style>
 </head>
 <body>
@@ -20,24 +22,109 @@
     <div class="info">Minute: <span id="minute">0</span>'</div>
     <div class="info">Event: <strong id="event">-</strong></div>
 
-    <button onclick="fetchUserInfo()">Get My User Info (Lab 3)</button>
+    <!-- ✅ Лаб 3: Кнопки для OIDC -->
+    <button onclick="loginWithOidc()">🔐 Login via Casdoor (OIDC)</button>
+    <button onclick="fetchAndSaveToken()">💾 Get & Save Token to Cookie (Лаб 3)</button>
+    <button onclick="fetchUserInfo()">👤 Get My User Info (Лаб 3)</button>
+    <button onclick="logout()">🚪 Logout</button>
+
+    <div id="status"></div>
+    <div id="user-panel"></div>
 </div>
 
 <script>
-    // Лаб 3: Отримання інформації про користувача
-    async function fetchUserInfo() {
-        let res = await fetch('/user-info');
-        let data = await res.json();
-        alert("User Info: " + JSON.stringify(data, null, 2));
+    // =============================================
+    // ✅ Лаб 3: OIDC Login — редирект на Casdoor
+    // =============================================
+    function loginWithOidc() {
+        // Spring Security автоматично обробляє цей URL та редиректить на Casdoor
+        window.location.href = '/oauth2/authorization/casdoor';
     }
 
-    // Лаб 4: WebSocket + Protobuf
-    protobuf.load("match.proto", function(err, root) {
-        if (err) throw err;
+    // =============================================
+    // ✅ Лаб 3 (п. 4b): Отримати Access Token і зберегти в Cookie
+    // =============================================
+    async function fetchAndSaveToken() {
+        try {
+            const res = await fetch('/api/token', {
+                headers: { 'Accept': 'application/json' }
+            });
 
-        // Назви класів формуються з урахуванням пакету
-        const MatchUpdate = root.lookupType("com.example.demo.proto.MatchUpdate");
-        const MatchSubscription = root.lookupType("com.example.demo.proto.MatchSubscription");
+            if (res.status === 401) {
+                setStatus('❌ Не аутентифіковано. Спочатку виконайте Login.');
+                return;
+            }
+
+            const data = await res.json();
+
+            // Зберігаємо токен у Cookie
+            // Secure — тільки по HTTPS
+            // SameSite=Strict — захист від CSRF
+            // НЕ HttpOnly — щоб JS міг читати (вимога завдання)
+            const expiresDate = new Date(Date.now() + 60 * 60 * 1000).toUTCString(); // 1 година
+            document.cookie = `access_token=${data.access_token}; Secure; SameSite=Strict; path=/; expires=${expiresDate}`;
+
+            setStatus('✅ Access Token збережено у Cookie (діє 1 годину)');
+        } catch (err) {
+            setStatus('❌ Помилка: ' + err.message);
+        }
+    }
+
+    // =============================================
+    // ✅ Лаб 3: Отримати інформацію про користувача з JWT claims
+    // =============================================
+    async function fetchUserInfo() {
+        try {
+            const res = await fetch('/user-info', {
+                headers: { 'Accept': 'application/json' }
+            });
+
+            if (res.status === 401) {
+                setStatus('❌ Не аутентифіковано. Спочатку виконайте Login.');
+                return;
+            }
+
+            const data = await res.json();
+
+            const panel = document.getElementById('user-panel');
+            panel.style.display = 'block';
+            panel.innerHTML = '<strong>User Info (JWT Claims):</strong><br>' +
+                Object.entries(data)
+                    .map(([k, v]) => `<b>${k}</b>: ${JSON.stringify(v)}`)
+                    .join('<br>');
+
+            setStatus('✅ User info отримано успішно');
+        } catch (err) {
+            setStatus('❌ Помилка: ' + err.message);
+        }
+    }
+
+    // =============================================
+    // Logout
+    // =============================================
+    function logout() {
+        // Видаляємо cookie
+        document.cookie = 'access_token=; Secure; SameSite=Strict; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        // Редирект на Spring logout
+        window.location.href = '/logout';
+    }
+
+    // Допоміжна функція для статус-повідомлень
+    function setStatus(msg) {
+        document.getElementById('status').innerText = msg;
+    }
+
+    // =============================================
+    // Лаб 4: WebSocket + Protobuf
+    // =============================================
+    protobuf.load("/match.proto", function(err, root) {
+        if (err) {
+            console.error("Protobuf load error:", err);
+            return;
+        }
+
+        const MatchUpdate = root.lookupType("com.example.demo.MatchUpdate");
+        const MatchSubscription = root.lookupType("com.example.demo.MatchSubscription");
 
         const socket = new WebSocket('wss://' + window.location.host + '/ws/football');
         socket.binaryType = "arraybuffer";
@@ -45,6 +132,7 @@
         socket.onopen = function() {
             const subMessage = MatchSubscription.create({ matchId: "real-barca" });
             socket.send(MatchSubscription.encode(subMessage).finish());
+            console.log("WebSocket підключено, підписка відправлена");
         };
 
         socket.onmessage = function(event) {
@@ -55,6 +143,10 @@
             document.getElementById('score').innerText = message.score;
             document.getElementById('minute').innerText = message.minute;
             document.getElementById('event').innerText = message.event;
+        };
+
+        socket.onerror = function(e) {
+            console.error("WebSocket error:", e);
         };
     });
 </script>
