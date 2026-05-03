@@ -2,152 +2,92 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <title>Live Football (OIDC + WSS + Protobuf)</title>
+    <title>Live Football</title>
     <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.2.5/dist/protobuf.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: #eef2f3; }
-        .card { background: white; padding: 20px; border-radius: 8px; display: inline-block; margin-top: 50px; box-shadow: 0px 4px 8px rgba(0,0,0,0.2); }
-        .score { font-size: 50px; font-weight: bold; margin: 10px 0; color: #d32f2f; }
-        .info { font-size: 18px; color: #555; }
-        button { margin-top: 10px; padding: 10px 15px; cursor: pointer; display: block; width: 100%; }
-        #status { margin-top: 10px; font-size: 14px; color: #777; }
-        #user-panel { margin-top: 10px; font-size: 14px; background: #f5f5f5; padding: 8px; border-radius: 4px; text-align: left; display: none; }
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{font-family:system-ui,sans-serif;background:#f5f5f5;display:flex;justify-content:center;padding:3rem 1rem}
+        .card{background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:2rem;width:100%;max-width:360px}
+        .match-header{font-size:13px;color:#999;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:0.5rem}
+        .score{font-size:48px;font-weight:500;color:#111;line-height:1;margin-bottom:0.25rem}
+        .meta{font-size:13px;color:#999;margin-bottom:2rem}
+        hr{border:none;border-top:1px solid #f0f0f0;margin:1.5rem 0}
+        button{display:block;width:100%;padding:9px 14px;margin-bottom:8px;background:transparent;border:1px solid #e0e0e0;border-radius:8px;font-size:13px;color:#111;cursor:pointer;text-align:left}
+        button:hover{background:#fafafa}
+        button:last-of-type{margin-bottom:0;color:#c0392b;border-color:#f5c6c6}
+        #status{margin-top:1rem;font-size:12px;color:#999;min-height:16px}
+        #user-panel{margin-top:1rem;font-size:12px;color:#555;line-height:1.6;display:none;border-top:1px solid #f0f0f0;padding-top:1rem}
     </style>
 </head>
 <body>
-
 <div class="card">
-    <h2 id="teams">Waiting for match data...</h2>
+    <p class="match-header" id="teams">Waiting for match...</p>
     <div class="score" id="score">0:0</div>
-    <div class="info">Minute: <span id="minute">0</span>'</div>
-    <div class="info">Event: <strong id="event">-</strong></div>
+    <p class="meta">Minute: <span id="minute">0</span>' &nbsp;·&nbsp; <span id="event">–</span></p>
 
-    <!-- ✅ Лаб 3: Кнопки для OIDC -->
-    <button onclick="loginWithOidc()">🔐 Login via Casdoor (OIDC)</button>
-    <button onclick="fetchAndSaveToken()">💾 Get & Save Token to Cookie (Лаб 3)</button>
-    <button onclick="fetchUserInfo()">👤 Get My User Info (Лаб 3)</button>
-    <button onclick="logout()">🚪 Logout</button>
+    <hr>
+
+    <button onclick="loginWithOidc()">Login via Casdoor</button>
+    <button onclick="fetchAndSaveToken()">Save token to cookie</button>
+    <button onclick="fetchUserInfo()">Get user info</button>
+    <button onclick="logout()">Logout</button>
 
     <div id="status"></div>
     <div id="user-panel"></div>
 </div>
 
 <script>
-    // =============================================
-    // ✅ Лаб 3: OIDC Login — редирект на Casdoor
-    // =============================================
     function loginWithOidc() {
-        // Spring Security автоматично обробляє цей URL та редиректить на Casdoor
-        window.location.href = '/oauth2/authorization/casdoor';
+      window.location.href = '/auth/login';
     }
 
-    // =============================================
-    // ✅ Лаб 3 (п. 4b): Отримати Access Token і зберегти в Cookie
-    // =============================================
     async function fetchAndSaveToken() {
-        try {
-            const res = await fetch('/api/token', {
-                headers: { 'Accept': 'application/json' }
-            });
-
-            if (res.status === 401) {
-                setStatus('❌ Не аутентифіковано. Спочатку виконайте Login.');
-                return;
-            }
-
-            const data = await res.json();
-
-            // Зберігаємо токен у Cookie
-            // Secure — тільки по HTTPS
-            // SameSite=Strict — захист від CSRF
-            // НЕ HttpOnly — щоб JS міг читати (вимога завдання)
-            const expiresDate = new Date(Date.now() + 60 * 60 * 1000).toUTCString(); // 1 година
-            document.cookie = `access_token=${data.access_token}; Secure; SameSite=Strict; path=/; expires=${expiresDate}`;
-
-            setStatus('✅ Access Token збережено у Cookie (діє 1 годину)');
-        } catch (err) {
-            setStatus('❌ Помилка: ' + err.message);
-        }
+      try {
+        const res = await fetch('/api/token', { headers: { 'Accept': 'application/json' } });
+        if (res.status === 401) { setStatus('Not authenticated. Please login first.'); return; }
+        const data = await res.json();
+        const exp = new Date(Date.now() + 3600000).toUTCString();
+        document.cookie = `access_token=${data.access_token}; Secure; SameSite=Strict; path=/; expires=${exp}`;
+        setStatus('Token saved to cookie.');
+      } catch (e) { setStatus('Error: ' + e.message); }
     }
 
-    // =============================================
-    // ✅ Лаб 3: Отримати інформацію про користувача з JWT claims
-    // =============================================
     async function fetchUserInfo() {
-        try {
-            const res = await fetch('/user-info', {
-                headers: { 'Accept': 'application/json' }
-            });
-
-            if (res.status === 401) {
-                setStatus('❌ Не аутентифіковано. Спочатку виконайте Login.');
-                return;
-            }
-
-            const data = await res.json();
-
-            const panel = document.getElementById('user-panel');
-            panel.style.display = 'block';
-            panel.innerHTML = '<strong>User Info (JWT Claims):</strong><br>' +
-                Object.entries(data)
-                    .map(([k, v]) => `<b>${k}</b>: ${JSON.stringify(v)}`)
-                    .join('<br>');
-
-            setStatus('✅ User info отримано успішно');
-        } catch (err) {
-            setStatus('❌ Помилка: ' + err.message);
-        }
+      try {
+        const res = await fetch('/user-info', { headers: { 'Accept': 'application/json' } });
+        if (res.status === 401) { setStatus('Not authenticated. Please login first.'); return; }
+        const data = await res.json();
+        const panel = document.getElementById('user-panel');
+        panel.style.display = 'block';
+        panel.innerHTML = Object.entries(data).map(([k, v]) => `<b>${k}</b>: ${JSON.stringify(v)}`).join('<br>');
+        setStatus('User info loaded.');
+      } catch (e) { setStatus('Error: ' + e.message); }
     }
 
-    // =============================================
-    // Logout
-    // =============================================
     function logout() {
-        // Видаляємо cookie
-        document.cookie = 'access_token=; Secure; SameSite=Strict; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-        // Редирект на Spring logout
-        window.location.href = '/logout';
+      document.cookie = 'access_token=; Secure; SameSite=Strict; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      window.location.href = '/logout';
     }
 
-    // Допоміжна функція для статус-повідомлень
-    function setStatus(msg) {
-        document.getElementById('status').innerText = msg;
-    }
+    function setStatus(msg) { document.getElementById('status').innerText = msg; }
 
-    // =============================================
-    // Лаб 4: WebSocket + Protobuf
-    // =============================================
-    protobuf.load("/match.proto", function(err, root) {
-        if (err) {
-            console.error("Protobuf load error:", err);
-            return;
-        }
-
-        const MatchUpdate = root.lookupType("com.example.demo.MatchUpdate");
-        const MatchSubscription = root.lookupType("com.example.demo.MatchSubscription");
-
-        const socket = new WebSocket('wss://' + window.location.host + '/ws/football');
-        socket.binaryType = "arraybuffer";
-
-        socket.onopen = function() {
-            const subMessage = MatchSubscription.create({ matchId: "real-barca" });
-            socket.send(MatchSubscription.encode(subMessage).finish());
-            console.log("WebSocket підключено, підписка відправлена");
-        };
-
-        socket.onmessage = function(event) {
-            const data = new Uint8Array(event.data);
-            const message = MatchUpdate.decode(data);
-
-            document.getElementById('teams').innerText = `${message.homeTeam} vs ${message.awayTeam}`;
-            document.getElementById('score').innerText = message.score;
-            document.getElementById('minute').innerText = message.minute;
-            document.getElementById('event').innerText = message.event;
-        };
-
-        socket.onerror = function(e) {
-            console.error("WebSocket error:", e);
-        };
+    protobuf.load('/match.proto', function(err, root) {
+      if (err) { console.error(err); return; }
+      const MatchUpdate = root.lookupType('com.example.demo.MatchUpdate');
+      const MatchSubscription = root.lookupType('com.example.demo.MatchSubscription');
+      const socket = new WebSocket('wss://' + window.location.host + '/ws/football');
+      socket.binaryType = 'arraybuffer';
+      socket.onopen = function() {
+        socket.send(MatchSubscription.encode(MatchSubscription.create({ matchId: 'real-barca' })).finish());
+      };
+      socket.onmessage = function(e) {
+        const m = MatchUpdate.decode(new Uint8Array(e.data));
+        document.getElementById('teams').innerText = m.homeTeam + ' vs ' + m.awayTeam;
+        document.getElementById('score').innerText = m.score;
+        document.getElementById('minute').innerText = m.minute;
+        document.getElementById('event').innerText = m.event;
+      };
+      socket.onerror = function(e) { console.error('WebSocket error:', e); };
     });
 </script>
 </body>
